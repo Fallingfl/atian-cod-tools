@@ -26,10 +26,10 @@ namespace {
 		};
 		static const char* op2s[]{
 			"",
-			"season_2_bonus_stream",
-			"summer_break_bundle",
-			"fourth_of_july_event_stream",
-			"labor_day_event_stream",
+			"free_pick_weapon_bribe_may_2020",
+			"sunset_features",
+			"bribe_offer_launch",
+			"half_off_pick_weapon_bribes",
 		};
 
 		static bool set2xp;
@@ -114,10 +114,10 @@ namespace {
 			std::vector<const char*> events{};
 
 			// I guess it's mandatory to have them
-			events.push_back("free_pick_weapon_bribe_may_2020");
-			events.push_back("sunset_features");
-			events.push_back("bribe_offer_launch");
-			events.push_back("half_off_pick_weapon_bribes");
+			events.push_back("digital_refresh_v3");
+			events.push_back("reserves_drop_12");
+			events.push_back("bribe_offer_holidays_2019");
+			events.push_back("reserve_completion_meter");
 
 			if (set2xp) {
 				events.push_back("global_2xp_mp_server");
