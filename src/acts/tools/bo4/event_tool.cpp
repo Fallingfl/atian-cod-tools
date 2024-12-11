@@ -18,20 +18,110 @@ namespace {
 		static const char* op1s[]{
 			"",
 			"season_2_stream",
-			"season_3_stream",
-			"season_4_stream",
-			"season_5_stream",
-			"season_6_stream",
-			"season_7_stream",
-			"season_8_stream",
-			"season_9",
+            "season_2_bonus_stream",
+            "season_3_stream",
+            "season_3_starter_pack",
+            "season_4_starter_pack",
+            "season_4_stream",
+            "early_season_4_loot_drop",
+            "season_5_stream",
+            "summer_break_bundle",
+            "fourth_of_july_event_stream",
+            "season_6_stream",
+            "season_7_stream",
+            "labor_day_event_stream",
+            "season_8_stream",
+            "season_9",
+            "zm_lab_titanium_treble_slot_1",
+            "digital_refresh_v3",
+            "reserves_drop_12",
+            "sunset_features",
+            "bribe_offer_launch",
+            "bribe_offer_holidays_2019",
+            "5_and_5_no_dupe_crate_bundle",
+            "half_off_nd_crate",
+            "10_and_20_no_dupe_crate_bundle",
+            "playlist_2xp_mp_server_nuketown",
+            "playlist_2xp_mp_client_nuketown",
+            "playlist_2xp_mp_server_long_term",
+            "playlist_2xp_mp_client_long_term",
+            "reserve_completion_meter",
+            "global_2xp_mp_server",
+            "global_2xp_mp_client",
+            "global_2xp_zm_server",
+            "global_2xp_zm_client",
+            "global_2x_merits_wz_server",
+            "global_2x_merits_wz_client",
+            "global_2wxp_mp_server",
+            "global_2wxp_mp_client",
+            "global_2wxp_zm_server",
+            "global_2wxp_zm_client",
+            "global_2xnp_zm_server",
+            "global_2xnp_zm_client",
+            "zm_lab_tungsten_tripler_slot_2",
+            "zm_lab_150_np_discount",
+            "global_2xtier_mp_server",
+            "global_2xtier_mp_client",
+            "global_2xtier_wz_server",
+            "global_2xtier_wz_client",
+            "10_no_dupe_crate_bundle",
+            "half_off_pick_weapon_bribes",
+            "free_pick_weapon_bribe_may_2020",
+
 		};
 		static const char* op2s[]{
 			"",
-			"season_2_bonus_stream",
-			"summer_break_bundle",
-			"fourth_of_july_event_stream",
-			"labor_day_event_stream",
+			"",
+			"season_2_stream",
+            "season_2_bonus_stream",
+            "season_3_stream",
+            "season_3_starter_pack",
+            "season_4_starter_pack",
+            "season_4_stream",
+            "early_season_4_loot_drop",
+            "season_5_stream",
+            "summer_break_bundle",
+            "fourth_of_july_event_stream",
+            "season_6_stream",
+            "season_7_stream",
+            "labor_day_event_stream",
+            "season_8_stream",
+            "season_9",
+            "zm_lab_titanium_treble_slot_1",
+            "digital_refresh_v3",
+            "reserves_drop_12",
+            "sunset_features",
+            "bribe_offer_launch",
+            "bribe_offer_holidays_2019",
+            "5_and_5_no_dupe_crate_bundle",
+            "half_off_nd_crate",
+            "10_and_20_no_dupe_crate_bundle",
+            "playlist_2xp_mp_server_nuketown",
+            "playlist_2xp_mp_client_nuketown",
+            "playlist_2xp_mp_server_long_term",
+            "playlist_2xp_mp_client_long_term",
+            "reserve_completion_meter",
+            "global_2xp_mp_server",
+            "global_2xp_mp_client",
+            "global_2xp_zm_server",
+            "global_2xp_zm_client",
+            "global_2x_merits_wz_server",
+            "global_2x_merits_wz_client",
+            "global_2wxp_mp_server",
+            "global_2wxp_mp_client",
+            "global_2wxp_zm_server",
+            "global_2wxp_zm_client",
+            "global_2xnp_zm_server",
+            "global_2xnp_zm_client",
+            "zm_lab_tungsten_tripler_slot_2",
+            "zm_lab_150_np_discount",
+            "global_2xtier_mp_server",
+            "global_2xtier_mp_client",
+            "global_2xtier_wz_server",
+            "global_2xtier_wz_client",
+            "10_no_dupe_crate_bundle",
+            "half_off_pick_weapon_bribes",
+            "free_pick_weapon_bribe_may_2020",
 		};
 
 		static bool set2xp;
@@ -93,16 +183,7 @@ namespace {
 			}
 			ImGui::EndCombo();
 		}
-        // 新增的文本输入框
-        ImGui::SeparatorText("Additional Input");
 
-        static char customInput[256] = "";  // 新增的文本输入框变量
-
-// 允许用户输入文本
-        if (ImGui::InputText("Custom Text", customInput, sizeof(customInput))) {
-            
-        op1s = customInput; 
-}
 		ImGui::SeparatorText("Operation 2");
 
 		if (ImGui::BeginCombo("##op2", op2)) {
@@ -118,17 +199,6 @@ namespace {
 			}
 			ImGui::EndCombo();
 		}
-
-// 新增的文本输入框
-        ImGui::SeparatorText("Additional Input");
-
-        static char customInput[256] = "";  // 新增的文本输入框变量
-
-// 允许用户输入文本
-        if (ImGui::InputText("Custom Text", customInput, sizeof(customInput))) {
-
-        op2s = customInput; 
-}
 
 		if (c) tool::nui::SaveNextConfig();
 		ImGui::Separator();
