@@ -6,6 +6,7 @@
 #include <rapidjson/document.h>
 #include <rapidjson/prettywriter.h>
 #include <rapidjson/stringbuffer.h>
+#include <compiler/gsc_compiler.hpp>
 
 
 namespace {
@@ -97,12 +98,20 @@ namespace {
 		void** location;
 	};
 
+	// ref to a string to link
+	struct DBFileAssetStringRef {
+		const char* str;
+		void** location;
+	};
+
 	// root entry
 	struct DBFFileAssetTable {
 		uint64_t entriesCount;
 		DBFFileAssetEntry* entries;
 		uint64_t refEntriesCount;
 		DBFFileAssetAssetRef* refEntries;
+		uint64_t stringsEntriesCount;
+		DBFileAssetStringRef* stringsEntries;
 	};
 
 	uint64_t NamePattern(const std::filesystem::path& path) {
@@ -263,6 +272,7 @@ namespace {
 		std::vector<DBFFileAssetEntry> entries{};
 		std::vector<dbflib::BlockId> entriesLoc{};
 		std::vector<DBFFileAssetAssetRef> refEntries{};
+		std::vector<DBFileAssetStringRef> refStrings{};
 
 		// compile entries
 
@@ -310,16 +320,33 @@ namespace {
 			}
 				break;
 			case pool::ASSET_TYPE_SCRIPTPARSETREE: {
-				if (!precompiled) {
-					LOG_WARNING("No GSC compiler available for file {}", path.string());
-					continue;
+				std::vector<byte> buffer{};
+
+				if (precompiled) {
+					if (!utils::ReadFile(path, buffer)) {
+						LOG_WARNING("Can't read {}", path.string());
+						continue;
+					}
 				}
+				else {
+					// compile file
+					acts::compiler::CompilerConfig cfg{};
+					char namePatt[0x100];
+					sprintf_s(namePatt, "hash_%llx", name);
 
-				std::string buffer{};
+					cfg.name = namePatt;
+					cfg.platform = tool::gsc::opcode::PLATFORM_PC;
+					cfg.vm = tool::gsc::opcode::VMI_T8;
+					cfg.detourType = acts::compiler::DETOUR_ACTS;
+					cfg.processorOpt.defines.insert("_DFG_GEN");
 
-				if (!utils::ReadFile(path, buffer)) {
-					LOG_WARNING("Can't read {}", path.string());
-					continue;
+					try {
+						acts::compiler::CompileGsc(path, buffer, cfg);
+					}
+					catch (std::runtime_error& re) {
+						LOG_ERROR("Can't compile {}: {}", path.string(), re.what());
+						continue;
+					}
 				}
 
 				auto& e = entries.emplace_back();
@@ -328,13 +355,13 @@ namespace {
 				e.type = type;
 
 				// allocate data
-				dbflib::BlockId rawDataId = builder.CreateBlock(buffer.data(), buffer.length());
+				dbflib::BlockId rawDataId = builder.CreateBlock(buffer.data(), buffer.size());
 
 				// allocate header
 				auto [rawId, rawptr] = builder.CreateBlock<ScriptParseTreeEntry>();
 				entriesLoc.emplace_back(rawId);
 				rawptr->name.name = name;
-				rawptr->size = (uint32_t)buffer.length();
+				rawptr->size = (uint32_t)buffer.size();
 
 				// link header -> data
 				builder.CreateLink(rawId, offsetof(ScriptParseTreeEntry, buffer), rawDataId);
@@ -467,15 +494,15 @@ namespace {
 								case STC_TYPE_HASHED2:
 								case STC_TYPE_HASHED7:
 								case STC_TYPE_HASHED8:
-									cell.value.hash_value = hash::Hash64Pattern(cellVal.c_str());
-									break;
-								case STC_TYPE_INT:
-									if (cellVal.starts_with("0x")) {
-										cell.value.int_value = std::stoull(cellVal.substr(2), nullptr, 16);
+									if (cellVal.empty()) {
+										cell.value.hash_value = 0;
 									}
 									else {
-										cell.value.int_value = std::stoll(cellVal);
+										cell.value.hash_value = hash::Hash64Pattern(cellVal.c_str());
 									}
+									break;
+								case STC_TYPE_INT:
+									cell.value.int_value = utils::ParseFormatInt(cellVal.c_str());
 									break;
 								case STC_TYPE_FLOAT:
 									cell.value.float_value = std::stof(cellVal);
@@ -576,9 +603,20 @@ namespace {
 			builder.CreateLink(tableId, offsetof(DBFFileAssetTable, refEntries), refEntriesId);
 		}
 
+		if (refStrings.size()) {
+			dbflib::BlockId refStringsId = builder.CreateBlock(refStrings.data(), sizeof(refStrings[0]) * refStrings.size());
+
+			for (size_t i = 0; i < refStrings.size(); i++) {
+				builder.CreateLink(refStringsId, (dbflib::BlockOffset)(sizeof(refStrings[0]) * i + offsetof(DBFileAssetStringRef, str)), (dbflib::BlockId)refStrings[i].str);
+				builder.CreateLink(refStringsId, (dbflib::BlockOffset)(sizeof(refStrings[0]) * i + offsetof(DBFileAssetStringRef, location)), (dbflib::BlockId)refStrings[i].location);
+			}
+			builder.CreateLink(tableId, offsetof(DBFFileAssetTable, stringsEntries), refStringsId);
+		}
+
 		DBFFileAssetTable* table = builder.GetBlock<DBFFileAssetTable>(tableId);
 		table->entriesCount = entries.size();
 		table->refEntriesCount = refEntries.size();
+		table->stringsEntriesCount = refStrings.size();
 
 
 		builder.WriteToFile(output);
@@ -586,14 +624,19 @@ namespace {
 
 		return tool::OK;
 	}
+
 	int dbfread(Process& proc, int argc, const char* argv[]) {
-		if (argc < 3) {
+		if (tool::NotEnoughParam(argc, 2)) {
 			return tool::BAD_USAGE;
 		}
 
 		dbflib::DBFileReader reader{ argv[2] };
+		std::filesystem::path outDir{ argv[3] };
 
+		std::filesystem::create_directories(outDir);
 		DBFFileAssetTable* table = reader.GetStart<DBFFileAssetTable>();
+		
+		
 
 		LOG_INFO("Entries: {}", table->entriesCount);
 		for (size_t i = 0; i < table->entriesCount; i++) {
@@ -602,6 +645,12 @@ namespace {
 			case pool::ASSET_TYPE_LOCALIZE_ENTRY:
 				LOG_INFO("- {:x} ({}) -> '{}'", e.name, pool::XAssetNameFromId(e.type), e.header.localize->string);
 				break;
+			case pool::ASSET_TYPE_SCRIPTPARSETREE: {
+				std::filesystem::path outGscc{ outDir / std::format("script_{:x}.gscc", e.header.spt->name.name) };
+				utils::WriteFile(outGscc, e.header.spt->buffer, e.header.spt->size);
+				LOG_INFO("- {:x} ({}) -> {}", e.name, pool::XAssetNameFromId(e.type), outGscc.string());
+				break;
+			}
 			default:
 				LOG_INFO("- {:x} ({}) -> {}", e.name, pool::XAssetNameFromId(e.type), e.header.ptr);
 				break;
