@@ -97,6 +97,9 @@ bool GscInfoOption::Compute(const char** args, INT startIndex, INT endIndex) {
         else if (!_strcmpi("--no-usings-sort", arg)) {
             m_noUsingsSort = true;
         }
+        else if (!_strcmpi("--no-str-decrypt", arg)) {
+            m_noStrDecrypt = true;
+        }
         else if (!strcmp("-s", arg) || !_strcmpi("--skip-data", arg)) {
             m_dumpSkipData = true;
         }
@@ -375,6 +378,7 @@ void GscInfoOption::PrintHelp() {
     LOG_DEBUG("--rawhash          : Add raw hashes to export dump");
     LOG_DEBUG("--no-path          : No path extraction");
     LOG_DEBUG("--no-usings-sort   : No usings sort");
+    LOG_DEBUG("--no-str-decrypt   : No string decrypt");
     LOG_DEBUG("--ignore-dbg-plt   : ignore debug platform info");
     LOG_DEBUG("-A --sync [mode]   : Sync mode: async or sync");
     LOG_DEBUG("--vtable           : Do not hide and decompile vtable functions");
@@ -516,6 +520,9 @@ uint32_t GSCOBJHandler::GetTokensOffset() {
 int GSCOBJHandler::PreLoadCode(T8GSCOBJContext& ctx, std::ostream& asmout) {
     return tool::OK;
 }
+std::pair<const char*, size_t> GSCOBJHandler::GetStringHeader(size_t len) {
+    return { "", 0 }; // no encryption header by default
+}
 int GSCOBJHandler::PatchCode(T8GSCOBJContext& ctx) {
     size_t opcodeSize = ctx.m_vmInfo->HasFlag(VmFlags::VMF_OPCODE_U16) ? 2 : 1;
     if (ctx.m_vmInfo->HasFlag(VmFlags::VMF_IW_LIKE)) {
@@ -526,7 +533,11 @@ int GSCOBJHandler::PatchCode(T8GSCOBJContext& ctx) {
             for (size_t i = 0; i < anims_count; i++) {
                 const auto* unk2c = reinterpret_cast<GSC_USEANIMTREE_ITEM*>(unk2c_location);
 
-                char* s = DecryptString(Ptr<char>(unk2c->address));
+                char* s = Ptr<char>(unk2c->address);
+
+                if (!ctx.opt.m_noStrDecrypt) {
+                    s = DecryptString(s);
+                }
 
                 uint32_t ref = ctx.AddStringValue(s);
                 const auto* vars = reinterpret_cast<const uint32_t*>(&unk2c[1]);
@@ -580,11 +591,22 @@ int GSCOBJHandler::PatchCode(T8GSCOBJContext& ctx) {
         for (size_t i = 0; i < string_count; i++) {
 
             const auto* str = reinterpret_cast<T8GSCString*>(str_location);
-            char* cstr = DecryptString(Ptr<char>(str->string));
-            if (gDumpStrings) {
-                gDumpStringsStore.insert(cstr);
+            const char* rcstr;
+            if (str->string) {
+                char* cstr = Ptr<char>(str->string);
+
+                if (!ctx.opt.m_noStrDecrypt) {
+                    cstr = DecryptString(cstr);
+                }
+                rcstr = cstr;
             }
-            uint32_t ref = ctx.AddStringValue(cstr);
+            else {
+                rcstr = "<invalid>";
+            }
+            if (gDumpStrings) {
+                gDumpStringsStore.insert(rcstr);
+            }
+            uint32_t ref = ctx.AddStringValue(rcstr);
 
             const auto* strings = reinterpret_cast<const uint32_t*>(&str[1]);
             for (size_t j = 0; j < str->num_address; j++) {
@@ -641,8 +663,13 @@ int GSCOBJHandler::PatchCode(T8GSCOBJContext& ctx) {
             for (size_t i = 0; i < anims_count; i++) {
                 const auto* animt = reinterpret_cast<GSC_ANIMTREE_ITEM*>(animt_location);
 
-                auto* s1 = DecryptString(Ptr<char>(animt->address_str1));
-                auto* s2 = DecryptString(Ptr<char>(animt->address_str2));
+                auto* s1 = Ptr<char>(animt->address_str1);
+                auto* s2 = Ptr<char>(animt->address_str2);
+
+                if (!ctx.opt.m_noStrDecrypt) {
+                    s1 = DecryptString(s1);
+                    s2 = DecryptString(s2);
+                }
 
                 uint32_t ref1 = ctx.AddStringValue(s1);
                 uint32_t ref2 = ctx.AddStringValue(s2);
@@ -792,14 +819,14 @@ int GSCOBJHandler::PatchCode(T8GSCOBJContext& ctx) {
                         std::string& str = it->second;
 
                         uint32_t strref = ctx.AddStringValue(str.c_str());
-                        Ref<uint32_t>(loc[j]) = strref;
+                        //Ref<uint32_t>(loc[j]) = strref;
                         ctx.AddStringRef(loc[j], strref);
                         continue;
                     }
                 }
                 ctx.m_unkstrings[str].insert(loc[j]);
                 uint32_t strref = ctx.AddStringValue(str);
-                Ref<uint32_t>(loc[j]) = strref;
+                //Ref<uint32_t>(loc[j]) = strref;
                 ctx.AddStringRef(loc[j], strref);
             }
             val = reinterpret_cast<T8GSCString*>(loc + val->num_address);
@@ -811,22 +838,34 @@ int GSCOBJHandler::PatchCode(T8GSCOBJContext& ctx) {
     for (size_t i = 0; i < string_count; i++) {
 
         const auto* str = reinterpret_cast<T8GSCString*>(str_location);
-        char* cstr = DecryptString(Ptr<char>(str->string));
-        if (gDumpStrings) {
-            gDumpStringsStore.insert(cstr);
+        const char* rcstr;
+        if (str->string) {
+            char* cstr = Ptr<char>(str->string);
+            if (!ctx.opt.m_noStrDecrypt) {
+                cstr = DecryptString(cstr);
+            }
+            rcstr = cstr;
         }
-        uint32_t ref = ctx.AddStringValue(cstr);
+        else {
+            rcstr = "<invalid>";
+        }
+        if (gDumpStrings) {
+            gDumpStringsStore.insert(rcstr);
+        }
+        uint32_t ref = ctx.AddStringValue(rcstr);
 
         const auto* strings = reinterpret_cast<const uint32_t*>(&str[1]);
         for (size_t j = 0; j < str->num_address; j++) {
             // no align too....
             if (strings[j] + sizeof(uint32_t) >= GetFileSize()) {
                 LOG_ERROR("Invalid string location: 0x{:x}", strings[j]);
-                return tool::BASIC_ERROR;
+                break;
             }
 
-            Ref<uint32_t>(strings[j]) = ref;
-            ctx.AddStringRef(strings[j], ref);
+            //Ref<uint32_t>(strings[j]) = ref;
+            if (str->string || !ctx.GetStringValueByLoc(strings[j])) {
+                ctx.AddStringRef(strings[j], ref);
+            }
         }
         str_location += sizeof(*str) + sizeof(*strings) * str->num_address;
     }
@@ -973,6 +1012,9 @@ const char* GetFLocName(GSCExportReader& reader, GSCOBJHandler& handler, uint32_
     void* maxPtr{};
     for (size_t i = 0; i < handler.GetExportsCount(); i++) {
         void* ptr = exportTable + reader.SizeOf() * i;
+        if (handler.GetExportsOffset() + reader.SizeOf() * (i + 1) > handler.GetFileSize()) {
+            throw std::runtime_error("Invalid export size");
+        }
         reader.SetHandle(ptr);
 
         uint32_t addr = reader.GetAddress();
@@ -1450,8 +1492,8 @@ int GscInfoHandleData(byte* data, size_t size, std::filesystem::path fsPath, Gsc
 ignoreCscGsc:
 
     if (opt.m_outputDir) {
-        const char* name = opt.m_noPath ? nullptr : hashutils::ExtractPtr(scriptfile->GetName());
-        
+        uint64_t hashname{ scriptfile->GetName() };
+
         const char* outDir;
         if (opt.m_splitByVm) {
             outDir = utils::va("%s/vm-%llx", opt.m_outputDir, ctx.m_vmInfo->vmMagic);
@@ -1460,17 +1502,51 @@ ignoreCscGsc:
             outDir = opt.m_outputDir;
         }
 
-        if (!name) {
-            const char* fileExt{ typeSure && isCsc ? "csc" : "gsc" };
-            if (actscli::options().heavyHashes) {
-                sprintf_s(asmfnamebuff, "%s/%016llX.%s", outDir, scriptfile->GetName(), fileExt);
+        if (hashname) {
+            const char* name = opt.m_noPath ? nullptr : hashutils::ExtractPtr(hashname);
+
+            if (!name) {
+                const char* fileExt{ typeSure && isCsc ? "csc" : "gsc" };
+                if (actscli::options().heavyHashes) {
+                    sprintf_s(asmfnamebuff, "%s/%016llX.%s", outDir, hashname, fileExt);
+                }
+                else {
+                    sprintf_s(asmfnamebuff, "%s/hashed/script/script_%llx.%s", outDir, hashname, fileExt);
+                }
             }
             else {
-                sprintf_s(asmfnamebuff, "%s/hashed/script/script_%llx.%s", outDir, scriptfile->GetName(), fileExt);
+                sprintf_s(asmfnamebuff, "%s/%s", outDir, name);
+
+                char* extName{ utils::CloneString(name) };
+                std::string_view usingSw{ extName };
+                size_t usingSwPath{ usingSw.find_last_of('/') };
+                if (usingSw.ends_with(".gsc") || usingSw.ends_with(".csc")) {
+                    extName[usingSw.length() - 4] = 0;
+                }
+
+                if (ctx.m_vmInfo->HasFlag(VmFlags::VMF_FULL_FILE_NAMESPACE)) {
+                    // IW vm import types
+                    hashutils::AddPrecomputed(ctx.m_vmInfo->HashFilePath(extName), extName);
+                }
+                if (usingSwPath != std::string::npos) {
+                    const char* namespaceAdd(&extName[usingSwPath + 1]);
+                    hashutils::AddPrecomputed(ctx.m_vmInfo->HashField(namespaceAdd), namespaceAdd);
+
+                    if (!ctx.m_vmInfo->HasFlag(VmFlags::VMF_FULL_FILE_NAMESPACE)) {
+                        hashutils::AddPrecomputed(ctx.m_vmInfo->HashFilePath(namespaceAdd), namespaceAdd);
+                    }
+                }
             }
         }
         else {
-            sprintf_s(asmfnamebuff, "%s/%s", outDir, name);
+            const char* fileExt{ typeSure && isCsc ? "csc" : "gsc" };
+            std::filesystem::path fn = fsPath;
+
+            fn.replace_extension(fileExt);
+
+            std::string name{ fn.string() };
+            LOG_WARNING("Can't find script name, using {}", name);
+            sprintf_s(asmfnamebuff, "%s/%s", outDir, name.data());
         }
     }
     else {
@@ -1488,7 +1564,7 @@ ignoreCscGsc:
         asmout.open(file);
 
         if (!asmout) {
-            LOG_ERROR("Can't open output file {}", asmfnamebuff);
+            LOG_ERROR("Can't open output file {} ({})", asmfnamebuff, hashutils::ExtractTmpScript(scriptfile->GetName()));
             return tool::BASIC_ERROR;
         }
         LOG_INFO("Decompiling into '{}'{}...", asmfnamebuff, (gsicInfo.isGsic ? " (GSIC)" : ""));
@@ -1588,8 +1664,9 @@ ignoreCscGsc:
                 asmout << "loc: ";
 
                 uint32_t* loc = reinterpret_cast<uint32_t*>(val + 1);
-                for (size_t j = 0; j < val->num_address; j++) {
-                    asmout << " 0x" << std::hex << loc[j];
+                asmout << flocName(loc[0]);
+                for (size_t j = 1; j < val->num_address; j++) {
+                    asmout << "," << flocName(loc[j]);
                 }
 
                 asmout << "\n";
@@ -1605,65 +1682,69 @@ ignoreCscGsc:
 
                 asmout << std::hex << "String addr:" << str->string << ", count:" << std::dec << (int)str->num_address << ", type:" << (int)str->type << ", loc:0x" << std::hex << (str_location - reinterpret_cast<uintptr_t>(scriptfile->Ptr())) << std::endl;
 
+                if (str->string >= scriptfile->GetFileSize()) {
+                    asmout << "bad string location : 0x" << std::hex << str->string << "/0x" << scriptfile->GetFileSize() << "\n";
+                    break;
+                }
+
                 char* encryptedString = scriptfile->Ptr<char>(str->string);
 
-                size_t len{};
-                byte type{};
-                if (scriptfile->GetMagic() == VMI_T8) {
-                    len = (size_t)reinterpret_cast<byte*>(encryptedString)[1] - 1;
-                    type = *reinterpret_cast<byte*>(encryptedString);
+                size_t len{ std::strlen(encryptedString) };
+                byte type{ (byte)(*reinterpret_cast<byte*>(encryptedString)) };
 
-                    if (str->string + len + 1 > scriptfile->GetFileSize()) {
-                        asmout << "bad string location : 0x" << std::hex << str->string << "/0x" << scriptfile->GetFileSize() << "\n";
-                        break;
-                    }
+                if (str->string + len > scriptfile->GetFileSize()) {
+                    asmout << "bad string location + len : 0x" << std::hex << str->string << "/0x" << scriptfile->GetFileSize() << "\n";
+                    break;
+                }
 
-                    asmout << "encryption: ";
-                    asmout << "0x" << std::hex << (int)type;
-                    if ((type & 0xC0) == 0x80) {
-                        asmout << "(none)";
-                    }
-                    asmout << " len: " << std::dec << len << " -> " << std::flush;
-
+                asmout << "encryption: ";
+                if ((type & 0xC0) != 0x80) {
+                    asmout << "(none)";
                 }
                 else {
-                    auto* ess = reinterpret_cast<byte*>(encryptedString);
-                    type = ess[0];
-                    len = (size_t)ess[2] - 1;
-
-                    if (str->string + len + 3 > scriptfile->GetFileSize()) {
-                        asmout << "bad string location : 0x" << std::hex << str->string << "/0x" << scriptfile->GetFileSize() << "\n";
-                        break;
-                    }
-
-                    asmout << "encryption: ";
                     asmout << "0x" << std::hex << (int)type;
-                    if ((type & 0xC0) == 0x80) {
-                        asmout << "(none)";
-                    }
-                    asmout << " len: " << std::dec << len << ", unk1: 0x" << std::hex << (int)ess[1] << " -> " << std::flush;
                 }
-                char* cstr = scriptfile->DecryptString(encryptedString);
+                asmout << " elen: " << std::dec << len << " -> " << std::flush;
 
-                utils::PrintFormattedString(asmout << '"', cstr) << '"' << std::flush;
+                char* cstr = encryptedString;
 
-                if (scriptfile->GetMagic() == VMI_T8) {
-                    size_t lenAfterDecrypt = strnlen_s(cstr, len + 2);
-
-                    if (lenAfterDecrypt != len) {
-                        asmout << " ERROR LEN (" << std::dec << lenAfterDecrypt << " != " << len << " for type 0x" << std::hex << (int)type << ")";
-                        assert(false);
-                    }
+                if (!ctx.opt.m_noStrDecrypt) {
+                    cstr = scriptfile->DecryptString(cstr);
                 }
 
-                asmout << "\n";
+                size_t dlen{ strlen(cstr) };
+                utils::PrintFormattedString(asmout << '"', cstr) << '"' << "(" << std::dec << dlen;
+                
+                if (dlen > len) {
+                    asmout << ",missing";
+                }
+                if ((type & 0xC0) == 0x80) {
+                    byte ntype{ (byte)(*reinterpret_cast<byte*>(encryptedString)) };
+                    asmout << ",pt:0x" << std::hex << (int)ntype;
+                    if (encryptedString <= cstr) {
+                        size_t delta{ (size_t)(cstr - encryptedString) };
+                        asmout << ",delta:0x" << delta;
+                        if (delta && delta < 5) {
+                            asmout << ",data=";
+                            for (size_t i = 0; i < delta; i++) {
+                                if (i) asmout << ",";
+                                asmout << "0x" << std::hex << (int)reinterpret_cast<byte*>(encryptedString)[i];
+                            }
+                        }
+                    }
+                    else {
+                        asmout << ",delta:-0x" << (encryptedString - cstr);
+                    }
+                }
+                
+                asmout << ")" << std::endl;
 
                 asmout << "location(s): ";
 
                 const auto* strings = reinterpret_cast<const uint32_t*>(&str[1]);
-                asmout << std::hex << flocName(strings[0]);
+                asmout << flocName(strings[0]);
                 for (size_t j = 1; j < str->num_address; j++) {
-                    asmout << std::hex << "," << flocName(strings[j]);
+                    asmout << "," << flocName(strings[j]);
                 }
                 asmout << "\n";
                 str_location += sizeof(*str) + sizeof(*strings) * str->num_address;
@@ -1722,7 +1803,20 @@ ignoreCscGsc:
                     return tool::BASIC_ERROR;
                 }
                 //asmout << "#using " << scriptfile->Ptr<char>(includes[i]) << ";\n";
-                usingsList.emplace_back(scriptfile->Ptr<char>(includes[i]));
+                const char* usingName{ scriptfile->Ptr<char>(includes[i]) };
+                usingsList.emplace_back(usingName);
+
+                std::string_view usingSw{ usingName };
+                size_t usingSwPath{ usingSw.find_last_of('/') };
+
+                if (usingSwPath != std::string::npos) {
+                    const char* namespaceAdd(&usingName[usingSwPath + 1]);
+                    hashutils::AddPrecomputed(ctx.m_vmInfo->HashField(namespaceAdd), namespaceAdd);
+
+                    if (!ctx.m_vmInfo->HasFlag(VmFlags::VMF_FULL_FILE_NAMESPACE)) {
+                        hashutils::AddPrecomputed(ctx.m_vmInfo->HashFilePath(namespaceAdd), namespaceAdd);
+                    }
+                }
             }
         }
         else {
@@ -1743,6 +1837,17 @@ ignoreCscGsc:
                         if (ctx.m_vmInfo->HasFlag(VmFlags::VMF_FULL_FILE_NAMESPACE)) {
                             // IW vm import types
                             hashutils::AddPrecomputed(ctx.m_vmInfo->HashFilePath(usingName), usingName);
+                        }
+                        std::string_view usingSw{ usingName };
+                        size_t usingSwPath{ usingSw.find_last_of('/') };
+
+                        if (usingSwPath != std::string::npos) {
+                            const char* namespaceAdd(&usingName[usingSwPath + 1]);
+                            hashutils::AddPrecomputed(ctx.m_vmInfo->HashField(namespaceAdd), namespaceAdd);
+
+                            if (!ctx.m_vmInfo->HasFlag(VmFlags::VMF_FULL_FILE_NAMESPACE)) {
+                                hashutils::AddPrecomputed(ctx.m_vmInfo->HashFilePath(namespaceAdd), namespaceAdd);
+                            }
                         }
                     }
                 }
@@ -1961,6 +2066,9 @@ ignoreCscGsc:
         return patchCodeResult;
     }
 
+    bool dumpAllErrors = actscli::options().debug;
+    int exportErrors{};
+
     if (opt.m_func) {
         actslib::profiler::ProfiledSection ps{ profiler, "decompiling" };
         // current namespace
@@ -2064,7 +2172,22 @@ ignoreCscGsc:
             }
             output << "gscasm {\n";
 
-            tool::gsc::DumpAsm(*exp, output, *scriptfile, ctx, asmctx);
+            try {
+                tool::gsc::DumpAsm(*exp, output, *scriptfile, ctx, asmctx);
+            }
+            catch (std::runtime_error& err) {
+                output << "FAILURE, " << err.what() << std::endl;
+                asmctx.DisableDecompiler(err.what());
+
+                {
+                    core::async::opt_lock_guard lg{ gdctx.asyncMtx };
+                    gdctx.hardErrors++;
+                    if (!(exportErrors++) || dumpAllErrors) {
+                        LOG_ERROR("Can't decompile export: {}", err.what());
+                    }
+                }
+            }
+
 
             output << "}\n";
 
@@ -2559,6 +2682,9 @@ ignoreCscGsc:
 
         }
         gdctx.decompiledFiles++;
+        if (exportErrors) {
+            LOG_ERROR("Found {} error(s)", exportErrors);
+        }
     }
 
     return 0;
@@ -2759,9 +2885,7 @@ int tool::gsc::DumpAsm(GSCExportReader& exp, std::ostream& out, GSCOBJHandler& g
             }
             uint32_t floc = ctx.ScriptAbsoluteLocation();
             if (ctx.m_bcl < gscFile.Ptr() || floc >= gscFile.GetFileSize()) {
-                out << std::hex << "FAILURE, FIND location after file 0x" << std::hex << floc << "\n";
-                ctx.DisableDecompiler(std::format("FIND bad floc 0x{:x}", floc));
-                break;
+                throw std::runtime_error(std::format("FIND location after file 0x{:x}", floc));
             }
             byte*& base = ctx.m_bcl;
 
@@ -2818,10 +2942,10 @@ int tool::gsc::DumpAsm(GSCExportReader& exp, std::ostream& out, GSCOBJHandler& g
             uint16_t opCode;
 
             if (objctx.m_vmInfo->HasFlag(VmFlags::VMF_OPCODE_U16)) {
-                opCode = *(uint16_t*)base;
+                opCode = ctx.Read<uint16_t>(base);
             }
             else {
-                opCode = (uint16_t)*base;
+                opCode = (uint16_t)ctx.Read<byte>(base);
             }
 
             const auto* handler = ctx.LookupOpCode(opCode);
@@ -2844,8 +2968,7 @@ int tool::gsc::DumpAsm(GSCExportReader& exp, std::ostream& out, GSCOBJHandler& g
             }
 
             if (opCode > objctx.m_vmInfo->maxOpCode) {
-                out << std::hex << "FAILURE, FIND errec: " << opcodeName << "(0x" << opCode << " > 0x" << objctx.m_vmInfo->maxOpCode << ")" << "\n";
-                ctx.DisableDecompiler(std::format("FIND errec 0x{:x}", opCode));
+                throw std::runtime_error(std::format("FIND errec {} (0x{:x} > 0x{:x})", opcodeName, opCode, objctx.m_vmInfo->maxOpCode));
                 opCode &= objctx.m_vmInfo->maxOpCode;
                 break;
             }
@@ -2870,7 +2993,7 @@ int tool::gsc::DumpAsm(GSCExportReader& exp, std::ostream& out, GSCOBJHandler& g
 
             // update ASMContext::WritePadding if you change the format
 
-            auto ret = handler->Dump(out, opCode, ctx, objctx);
+            int ret = handler->Dump(out, opCode, ctx, objctx);
 
             if (ret) {
                 break;
@@ -2966,7 +3089,7 @@ int tool::gsc::DumpVTable(GSCExportReader& exp, std::ostream& out, GSCOBJHandler
         if (!AssertOpCode(OPCODE_T9_EvalFieldVariableFromGlobalObject)) return DVA_BAD;
         ctx.Aligned<uint16_t>() += 2; // - classes
     }
-    else if (gscFile.GetMagic() < VMI_T8) {
+    else if (gscFile.GetMagic() < VMI_T834) {
         ctx.Aligned<uint16_t>() += 2; // GetClassesObject
 
         ctx.Aligned<uint16_t>() += 2; // EvalFieldVariableRef className
@@ -3095,7 +3218,7 @@ int tool::gsc::DumpVTable(GSCExportReader& exp, std::ostream& out, GSCOBJHandler
 
         if (!AssertOpCode(OPCODE_GetZero)) return DVA_BAD;
 
-        if (gscFile.GetMagic() >= VMI_T8) {
+        if (gscFile.GetMagic() >= VMI_T834) {
             ctx.Aligned<uint16_t>() += 2; // EvalGlobalObjectFieldVariable
             ctx.Aligned<uint16_t>() += 2; // - gvar
         }
@@ -3574,10 +3697,15 @@ int tool::gsc::gscinfo(Process& proc, int argc, const char* argv[]) {
                     LOG_ERROR("Can't read file data for {}", path.string());
                     continue;
                 }
-
-                auto lret = GscInfoHandleData((byte*)bufferAlign, size, pathRel, gdctx);
-                if (lret != tool::OK) {
-                    ret = lret;
+                try {
+                    auto lret = GscInfoHandleData((byte*)bufferAlign, size, pathRel, gdctx);
+                    if (lret != tool::OK) {
+                        ret = lret;
+                    }
+                }
+                catch (std::runtime_error& e) {
+                    LOG_ERROR("Exception when reading {}: {}", path.string(), e.what());
+                    ret = tool::BASIC_ERROR;
                 }
             }
         }
@@ -3626,6 +3754,10 @@ int tool::gsc::gscinfo(Process& proc, int argc, const char* argv[]) {
         core::async::SetAsync(prevAsyncTypes);
     }
 
+
+    if (gdctx.hardErrors) {
+        LOG_ERROR("{} (0x{:x}) error(s), are you using the right vm type?", gdctx.hardErrors, gdctx.hardErrors);
+    }
     LOG_INFO("{} (0x{:x}) file(s) decompiled.", gdctx.decompiledFiles, gdctx.decompiledFiles);
 
     if (!globalHM) {
