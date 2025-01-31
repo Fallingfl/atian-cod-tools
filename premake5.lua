@@ -386,6 +386,7 @@ project "AtianCodTools"
         "deps/thread-pool/include/",
         "deps/stb/",
         "deps/tomlplusplus/include/toml++/",
+        "deps/salsa20/Source/",
         "deps/miniz-cpp/"
     }
 
@@ -414,6 +415,7 @@ project "AtianCodTools"
 	links { "OpenGL32" }
 	links { "GLU32" }
     links { "imgui" }
+	links { "Crypt32.lib" }
     dependson "detours"
     dependson "antlr4-runtime"
     dependson "ACTSSharedLibrary"

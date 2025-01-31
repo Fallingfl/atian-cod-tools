@@ -7,14 +7,22 @@ namespace core::bytebuffer {
 		size_t pointer{};
 
 	public:
-		ByteBuffer(byte* buffer, size_t len) : buffer(buffer), len(len) {}
+		ByteBuffer(byte* buffer, size_t len, size_t pointer = 0) : buffer(buffer), len(len), pointer(pointer) {}
 		ByteBuffer(std::string& buff) : buffer((byte*)buff.data()), len(buff.size()) {}
 		ByteBuffer(std::vector<byte>& buff) : buffer((byte*)buff.data()), len(buff.size()) {}
-
+		
 		bool CanRead(size_t size) const {
 			return pointer + size <= len;
 		}
 
+		constexpr size_t Length() const {
+			return len;
+		}
+
+		constexpr size_t Remaining() const {
+			return len - pointer;
+		}
+		
 		template<typename T>
 		T Read() {
 			if (!CanRead(sizeof(T))) {
@@ -23,6 +31,15 @@ namespace core::bytebuffer {
 			T t = *(T*)&buffer[pointer];
 			pointer += sizeof(T);
 			return t;
+		}
+
+		void Read(void* to, size_t size) {
+			if (!CanRead(size)) {
+				throw std::runtime_error(utils::va("Reading pointer too much at 0x%llx + 0x%llx > 0x%llx", pointer, size, len));
+			}
+			
+			std::memmove(to, &buffer[pointer], size);
+			pointer += size;
 		}
 
 		template<typename T>
